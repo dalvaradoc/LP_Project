@@ -1,5 +1,73 @@
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+
+class Row {
+    String id;
+    int lvl;
+    String type;
+    ArrayList<String> arguments;
+
+    public Row(String id, String type, int lvl) {
+        this.id = id;
+        this.type = type;
+        this.lvl = lvl;
+        this.arguments = new ArrayList<>();
+    }
+
+    @Override
+    public String toString() {
+        return "Id: " + id + ", type: " + type + ", lvl: " + lvl + ", arguments: " + arguments.toString();
+    }
+}
+
+class MyList {
+    ArrayList<Row> list;
+
+    public MyList() {
+        list = new ArrayList<>();
+    }
+
+    public void push(Row row){
+        list.add(row);
+    }
+
+    public Row get(String id){
+        for (int i = 0; i < list.size(); ++i){
+            if (list.get(i).id.equals(id)){
+                return list.get(i);
+            }
+        }
+        return null;
+    }
+
+    public void addArg(String arg){
+        list.get(list.size()-1).arguments.add(arg);
+    }
+
+    public Row last(){
+        if (list.size() > 0)
+            return list.get(list.size()-1);
+        return null;
+    }
+
+    public void set(Row row){
+        for (int i = 0; i < list.size(); ++i){
+            if (list.get(i).id.equals(row.id)){
+                list.set(i, row);
+            }
+        }
+    }
+}
+
 public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
+
+//    private HashMap<String, String> table = new HashMap<>();
+    private MyList table = new MyList();
     private int indentation = 0;
+
+    private String localType = "";
     public String getInd(){
         String ret = "";
         for (int i = 0; i < indentation; ++i){
@@ -7,23 +75,34 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
         }
         return ret;
     }
+
+    public void print(String s){
+        if (table.last() != null && skip.contains(table.last().type) && declaring)
+            return;
+        System.out.print(s);
+    }
     @Override
     public T visitStatement(JavaGrammarParser.StatementContext ctx) {
         if (ctx.block() == null)
             System.out.print(getInd());
         if (ctx.IF() != null){
-            System.out.print("if ");
+            print("if ");
             visitParExpression(ctx.parExpression());
             visitStatement(ctx.statement(0));
             int i = 1;
             while (ctx.statement(i) != null){
-                System.out.print("else");
+                print(getInd() + "else");
                 visitStatement(ctx.statement(i));
                 ++i;
             }
+        } else if (ctx.WHILE() != null) {
+            print("while ");
+            visitParExpression(ctx.parExpression());
+            visitStatement(ctx.statement(0));
         } else {
             visitChildren(ctx);
         }
+        System.out.println();
         return null;
     }
 
@@ -41,16 +120,20 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
 
     @Override
     public T visitClassDeclaration(JavaGrammarParser.ClassDeclarationContext ctx) {
-        if (ctx.CLASS() != null){
-            System.out.print("class " + visitIdentifier(ctx.identifier()));
-        }
+        String cid = visitIdentifier(ctx.identifier()).toString();
+        print("class " + cid);
         visitClassBody(ctx.classBody());
+        if (table.get("main") != null && table.get("main").type.equals("")){
+            table.get("main").type = cid;
+            table.get("main").lvl = indentation;
+        }
         return null;
     }
 
     @Override
     public T visitClassBody(JavaGrammarParser.ClassBodyContext ctx) {
-        System.out.println(":");
+        print(":");
+        System.out.println();
         ++indentation;
         visitChildren(ctx);
         --indentation;
@@ -59,7 +142,8 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
 
     @Override
     public T visitBlock(JavaGrammarParser.BlockContext ctx) {
-        System.out.println(":");
+        print(":");
+        System.out.println();
         ++indentation;
         int i = 0;
         while (ctx.blockStatement(i) != null){
@@ -73,8 +157,18 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
 
     @Override
     public T visitCompilationUnit(JavaGrammarParser.CompilationUnitContext ctx) {
+        skip.add("Scanner");
+
         visitChildren(ctx);
-        System.out.println("main()");
+        if (table.get("main") == null || table.get("main").type.equals("")){
+            System.out.println("Semantic error, there is no main function.");
+            return null;
+        }
+        System.out.println(table.get("main").type + ".main()");
+
+        for (Row row : table.list) {
+            System.out.println(row);
+        }
         return null;
     }
 
@@ -94,12 +188,13 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
 
     @Override
     public T visitImportDeclaration(JavaGrammarParser.ImportDeclarationContext ctx) {
-//        String qn = ctx.qualifiedName().getText();
-//        switch (qn){
-//            case "java.util.Scanner":
-//                System.out.println("import sys");
-//                break;
-//        }
+        String qn = ctx.qualifiedName().getText();
+        switch (qn){
+            case "java.util.Scanner":
+                print("import sys");
+                System.out.println();
+                break;
+        }
         visitChildren(ctx);
         return null;
     }
@@ -107,18 +202,32 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
     @Override
     public T visitLiteral(JavaGrammarParser.LiteralContext ctx) {
         visitChildren(ctx);
+        if (ctx.floatLiteral() != null){
+            String float_number = ctx.floatLiteral().getText();
+            if (float_number.contains("f"))
+                float_number = float_number.substring(0, float_number.length()-1);
+            return (T) float_number;
+        } else if (ctx.BOOL_LITERAL() != null) {
+            if (ctx.BOOL_LITERAL().getText().equals("true"))
+                return (T) "True";
+            else
+                return (T) "False";
+        }
+        table.addArg(ctx.getText());
         return (T) ctx.getText();
     }
 
     @Override
     public T visitPrimary(JavaGrammarParser.PrimaryContext ctx) {
         if (ctx.LPAREN() != null) {
-            System.out.print("(");
+            print("(");
             T ret = visitChildren(ctx);
-            System.out.print(")");
+            print(")");
             return ret;
-        } else if (ctx.literal() != null || ctx.identifier() != null) {
-            System.out.print(ctx.getText());
+        } else if (ctx.literal() != null) {
+            print(visitLiteral(ctx.literal()).toString());
+        } else if (ctx.identifier() != null) {
+            print(visitIdentifier(ctx.identifier()).toString());
         } else {
             visitChildren(ctx);
         }
@@ -127,21 +236,31 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
 
     @Override
     public T visitExpression(JavaGrammarParser.ExpressionContext ctx) {
+        table.addArg(ctx.getText());
         if (ctx.LBRACK() != null){
             visitChildren(ctx.expression(0));
-            System.out.print("[");
+            print("[");
             visitChildren(ctx.expression(1));
-            System.out.print("]");
+            print("]");
         } else if (ctx.bop != null && ctx.bop.getText().equals(".")) {
-            visitExpression(ctx.expression(0));
-            System.out.print(".");
+//            print(".");
             if (ctx.identifier() != null){
-                System.out.print(visitIdentifier(ctx.identifier()));
+//                print(visitIdentifier(ctx.identifier()));
             } else if (ctx.methodCall() != null){
                 visitMethodCall(ctx.methodCall());
             }
         } else if (ctx.bop != null) {
             String bop = ctx.bop.getText();
+            if (bop.equals("+") && printing){
+                print("str(");
+                visitExpression(ctx.expression(0));
+                print(")");
+                print(" + ");
+                print("str(");
+                visitExpression(ctx.expression(1));
+                print(")");
+                return null;
+            }
             switch (bop) {
                 case "+":
                 case "-":
@@ -160,53 +279,53 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
                 case "/=":
                 case "%=":
                     visitExpression(ctx.expression(0));
-                    System.out.print(" " + bop + " ");
+                    print(" " + bop + " ");
                     visitExpression(ctx.expression(1));
                     break;
                 case "||":
                     visitExpression(ctx.expression(0));
-                    System.out.print(" " + "Or" + " ");
+                    print(" " + "Or" + " ");
                     visitExpression(ctx.expression(1));
                     break;
                 case "&&":
                     visitExpression(ctx.expression(0));
-                    System.out.print(" " + "And" + " ");
+                    print(" " + "And" + " ");
                     visitExpression(ctx.expression(1));
                     break;
                 case "?":
                     visitExpression(ctx.expression(1));
-                    System.out.print(" if ");
+                    print(" if ");
                     visitExpression(ctx.expression(0));
-                    System.out.print(" else ");
+                    print(" else ");
                     visitExpression(ctx.expression(2));
                     break;
             }
         } else if (ctx.postfix != null) {
             visitExpression(ctx.expression(0));
             if (ctx.postfix.getText().equals("++")){
-                System.out.print( " += 1");
+                print( " += 1");
             } else {
-                System.out.print(" -= 1");
+                print(" -= 1");
             }
         } else if (ctx.prefix != null) {
             String pf = ctx.prefix.getText();
             switch (pf){
                 case "+":
                 case "-":
-                    System.out.print(pf);
+                    print(pf);
                     visitExpression(ctx.expression(0));
                     break;
                 case "!":
-                    System.out.print(" not ");
+                    print(" not ");
                     visitExpression(ctx.expression(0));
                     break;
                 case "++":
                     visitExpression(ctx.expression(0));
-                    System.out.print(" += 1");
+                    print(" += 1");
                     break;
                 case "--":
                     visitExpression(ctx.expression(0));
-                    System.out.print(" -= 1");
+                    print(" -= 1");
                     break;
             }
         } else {
@@ -215,44 +334,62 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
         return null;
     }
 
+    private boolean printing = false;
+
     @Override
     public T visitMethodCall(JavaGrammarParser.MethodCallContext ctx) {
         if (ctx.identifier() != null){
             String mid = ctx.identifier().getText();
             switch (mid){
                 case "println":
-                    System.out.print("print");
+                case "print":
+                    print("print");
+                    printing = true;
                     break;
+                case "nextInt":
+                    String id = table.last().arguments.get(0).split("[.]")[0];
+                    if (table.get(id) == null || !table.get(id).type.equals("Scanner"))
+                        System.out.println("Semantic error");
+                    else
+                        switch (table.get(id).arguments.get(1)){
+                            case "System.in":
+                                print("int(input())");
+                        }
+                    return null;
                 default:
-                    System.out.println(mid);
+                    print(mid);
             }
             visitArguments(ctx.arguments());
+            printing = false;
         }
         return null;
     }
 
     @Override
     public T visitArguments(JavaGrammarParser.ArgumentsContext ctx) {
-        System.out.print("(");
+        print("(");
         visitChildren(ctx);
-        System.out.print(")");
+        print(")");
         return null;
     }
 
     @Override
     public T visitExpressionList(JavaGrammarParser.ExpressionListContext ctx) {
+        visitExpression(ctx.expression(0));
         int i = 1;
         while (ctx.expression(i) != null){
-            System.out.print(",");
+            print(",");
+            visitExpression(ctx.expression(i));
             ++i;
         }
-        return super.visitExpressionList(ctx);
+//        return super.visitExpressionList(ctx);
+        return null;
     }
 
     @Override
     public T visitElementValuePair(JavaGrammarParser.ElementValuePairContext ctx) {
-        System.out.print(visitIdentifier(ctx.identifier()));
-        System.out.print(" = ");
+        print(visitIdentifier(ctx.identifier()).toString());
+        print(" = ");
         visitElementValue(ctx.elementValue());
         return null;
     }
@@ -262,21 +399,33 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
         visitVariableDeclarator(ctx.variableDeclarator(0));
         int i = 1;
         while (ctx.variableDeclarator(i) != null){
-            System.out.print(", ");
+//            print(", ");
+            System.out.println();
+            print(getInd());
             visitVariableDeclarator(ctx.variableDeclarator(i));
             ++i;
         }
         return null;
     }
 
+    private HashSet<String> skip = new HashSet<>();
+    private boolean declaring = false;
+
     @Override
     public T visitVariableDeclarator(JavaGrammarParser.VariableDeclaratorContext ctx) {
+        declaring = true;
         String id = ctx.variableDeclaratorId().getText();
-        System.out.print(id);
+        Row last = table.last();
+        last.id = id;
+        table.list.set(table.list.size()-1, last);
+        print(id);
         if (ctx.ASSIGN() != null){
-            System.out.print(" = ");
+            print(" = ");
             visitVariableInitializer(ctx.variableInitializer());
         }
+        ArrayList<String> values = new ArrayList<>();
+        values.add(id);
+        declaring = false;
         return null;
     }
 
@@ -300,12 +449,13 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
 
     @Override
     public T visitMethodDeclaration(JavaGrammarParser.MethodDeclarationContext ctx) {
-
-        System.out.print("def " + visitIdentifier(ctx.identifier()));
+        String mid = visitIdentifier(ctx.identifier()).toString();
+        print("def " + mid);
+        table.push(new Row(mid, "", indentation));
         visitFormalParameters(ctx.formalParameters());
         int i = 0;
         while (ctx.LBRACK(i) != null){
-            System.out.print("[]");
+            print("[]");
             ++i;
         }
         return visitMethodBody(ctx.methodBody());
@@ -313,9 +463,18 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
 
     @Override
     public T visitFormalParameters(JavaGrammarParser.FormalParametersContext ctx) {
-        System.out.print("(self");
+        print("(");
         visitChildren(ctx);
-        System.out.print(")");
+        print(")");
         return null;
+    }
+
+    @Override
+    public T visitLocalVariableDeclaration(JavaGrammarParser.LocalVariableDeclarationContext ctx) {
+        if (ctx.typeType() != null){
+            table.push(new Row(this.toString(), ctx.typeType().getText(), indentation));
+
+        }
+        return visitChildren(ctx);
     }
 }
