@@ -67,6 +67,8 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
     private MyList table = new MyList();
     private int indentation = 0;
 
+    private boolean areFields = false;
+
     private String localType = "";
     public String getInd(){
         String ret = "";
@@ -130,9 +132,31 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
         return null;
     }
 
+    boolean builtInFun = false;
+
     @Override
     public T visitIdentifier(JavaGrammarParser.IdentifierContext ctx) {
         if (ctx.IDENTIFIER() != null){
+            String id = ctx.IDENTIFIER().getText();
+            if (id.equals("System") || id.equals("out")){
+                builtInFun = true;
+                return (T) "";
+            }
+            if (table.get(id) != null && table.get(id).type.equals("field")){
+                int lvl = indentation;
+                boolean same_context = false;
+                for (int i = table.list.size()-1; i >= 0; --i){
+                    if (table.list.get(i).lvl < 1){
+                        break;
+                    }
+                    if (table.list.get(i).id.equals(id))
+                        same_context = true;
+                }
+                if (same_context)
+                    return (T) ("self." + id);
+                else
+                    return (T) id;
+            }
             return (T) ctx.IDENTIFIER().getText();
         } else if (ctx.MODULE() != null){
             return (T) ctx.MODULE().getText();
@@ -146,6 +170,22 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
     public T visitClassDeclaration(JavaGrammarParser.ClassDeclarationContext ctx) {
         String cid = visitIdentifier(ctx.identifier()).toString();
         print("class " + cid);
+        table.push(new Row(cid, "class", indentation));
+        if (ctx.EXTENDS() != null){
+            String class_ext = ctx.typeType().getText();
+            print("(" + class_ext + ")");
+            for (int i = 0; i < table.list.size(); ++i){
+                if (table.list.get(i).id.equals(class_ext)){
+                    for (int j = i+1; j < table.list.size(); ++j){
+                        if (table.list.get(j).type.equals("field"))
+                            table.push(table.list.get(j));
+                        else
+                            i = table.list.size();
+                            break;
+                    }
+                }
+            }
+        }
         visitClassBody(ctx.classBody());
         if (table.get("main") != null && table.get("main").type.equals("")){
             table.get("main").type = cid;
@@ -270,11 +310,16 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
             visitChildren(ctx.expression(1));
             print("]");
         } else if (ctx.bop != null && ctx.bop.getText().equals(".")) {
-//            print(".");
+            visitExpression(ctx.expression(0));
+            if (!builtInFun){
+                print(".");
+            }
+            builtInFun = false;
             if (ctx.identifier() != null){
-//                print(visitIdentifier(ctx.identifier()));
+                print(visitIdentifier(ctx.identifier()).toString());
             } else if (ctx.methodCall() != null){
                 visitMethodCall(ctx.methodCall());
+                builtInFun = false;
             }
         } else if (ctx.bop != null) {
             String bop = ctx.bop.getText();
@@ -390,8 +435,19 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
                 case "close":
                     return null;
                 default:
-                    if (table.get(mid) != null && table.get(mid).lvl <= table.last().lvl){
-                        print("self."+mid);
+                    if (table.get(mid) != null){
+                        boolean same_context = false;
+                        for (int i = table.list.size()-1; i >= 0; --i){
+                            if (table.list.get(i).lvl < 1){
+                                break;
+                            }
+                            if (table.list.get(i).id.equals(mid))
+                                same_context = true;
+                        }
+                        if (same_context)
+                            print("self."+mid);
+                        else
+                            print(mid);
                     } else {
                         print(mid);
                     }
@@ -453,14 +509,23 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
         declaring = true;
         String id = ctx.variableDeclaratorId().getText();
         Row last = table.last();
-        last.id = id;
-        table.list.set(table.list.size()-1, last);
-        print(id);
+        if (last != null && last.id.equals("")) {
+            last.id = id;
+            table.list.set(table.list.size() - 1, last);
+        } else {
+            table.push(new Row(id, "", indentation));
+        }
         if (ctx.ASSIGN() != null){
+            print(id);
             print(" = ");
             visitVariableInitializer(ctx.variableInitializer());
+        } else if (areFields) {
+            last = table.last();
+            last.type = "field";
+            table.set(last);
+            System.out.println();
         } else {
-            print(" = 0");
+            print(id + " = 0");
         }
         ArrayList<String> values = new ArrayList<>();
         values.add(id);
@@ -504,13 +569,11 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
     public T visitFormalParameters(JavaGrammarParser.FormalParametersContext ctx) {
         print("(self");
         if (ctx.receiverParameter() != null){
-            if (table.last().id != "main")
-                print(",");
+            print(",");
             visitReceiverParameter(ctx.receiverParameter());
         }
         if (ctx.formalParameterList() != null){
-            if (table.last().id != "main")
-                print(",");
+            print(",");
             visitFormalParameterList(ctx.formalParameterList());
         }
         print(")");
@@ -568,6 +631,20 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
         print(ctx.variableDeclaratorId().getText());
         print(" in ");
         visitExpression(ctx.expression());
+        return null;
+    }
+
+    @Override
+    public T visitFieldDeclaration(JavaGrammarParser.FieldDeclarationContext ctx) {
+        areFields = true;
+        visitChildren(ctx);
+        areFields = false;
+        return null;
+    }
+
+    @Override
+    public T visitCreatedName(JavaGrammarParser.CreatedNameContext ctx) {
+        print(visitIdentifier(ctx.identifier(0)).toString());
         return null;
     }
 }
