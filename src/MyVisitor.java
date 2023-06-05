@@ -138,7 +138,7 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
     public T visitIdentifier(JavaGrammarParser.IdentifierContext ctx) {
         if (ctx.IDENTIFIER() != null){
             String id = ctx.IDENTIFIER().getText();
-            if (id.equals("System") || id.equals("out")){
+            if (id.equals("System") || id.equals("out") || id.equals("reader")){
                 builtInFun = true;
                 return (T) "";
             }
@@ -420,7 +420,7 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
                     printing = true;
                     break;
                 case "nextInt":
-                    String id = table.last().arguments.get(0).split("[.]")[0];
+                    String id = table.last().arguments.get(1).split("[.]")[0];
                     if (table.get(id) == null || !table.get(id).type.equals("Scanner"))
                         System.out.println("Semantic error");
                     else
@@ -603,8 +603,7 @@ public class MyVisitor<T> extends JavaGrammarBaseVisitor<T> {
     @Override
     public T visitLocalVariableDeclaration(JavaGrammarParser.LocalVariableDeclarationContext ctx) {
         if (ctx.typeType() != null){
-            table.push(new Row(this.toString(), ctx.typeType().getText(), indentation));
-
+            table.push(new Row("", ctx.typeType().getText(), indentation));
         }
         return visitChildren(ctx);
     }
